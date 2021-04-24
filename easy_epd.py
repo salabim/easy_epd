@@ -20,9 +20,18 @@ If run on other hardware than a Raspberry Pi, the output will be shown via the .
 
 The easy_epd module doesn't need epdconfig.py file.
 
+
+version 0.0.4  2021-04-21
+=========================
+When there is no change in the buffer passed to displayPartial, that buffer is written at most three times.
+The same holds for equal images passed to display_image.
+That also meand that in display_image any repeat of more than 3 is essentially (although not explicitely) 3.
+
+
 version 0.0.3  2021-04-20
 =========================
 When emulated, all methods of EPD are supported, although most of them are just dummy.
+
 
 version 0.0.2  2021-04-19
 =========================
@@ -50,8 +59,19 @@ import logging
 import time
 
 HAS_EPD = False
-if os.path.exists("/sys/bus/platform/drivers/gpiomem-bcm2835"):
-    HAS_EPD = True
+try:
+    import spidev
+    has_spidev = True
+except ImportError:
+    has_spidev = False
+
+if has_spidev:
+    try:
+        spi = spidev.SpiDev()
+        spi.open(0,0)
+        HAS_EPD = True
+    except FileNotFoundError:
+        pass
 else:
     find_dirs = [os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib", "/usr/lib"]
     for find_dir in find_dirs:
@@ -222,6 +242,9 @@ class EPD:
 
         setattr(self, "org__init__", types.MethodType(getattr(epdx.EPD, "__init__"), self))
 
+        self.last_buffer = []
+        self.last_buffer_count = 0
+
         if HAS_EPD:
             self.org__init__()
 
@@ -324,6 +347,14 @@ class EPD:
             raise ValueError(f"image not {self.width}x{self.height} or {self.height}x{self.width} pixels")
 
     def displayPartial(self, buffer):
+        if self.last_buffer == buffer:
+            if self.last_buffer_count == 3:
+                return
+        else:
+            self.last_buffer = buffer
+            self.last_buffer_count = 0
+        self.last_buffer_count += 1
+
         if HAS_EPD:
             digital_write = epdconfig.GPIO.output
             write_byte = epdconfig.spi_writebyte
@@ -345,10 +376,12 @@ class EPD:
                 digital_write(cs_pin, 1)  # epdconfig.digital_write(self.cs_pin, 0)
             self.TurnOnDisplayPart()
         else:
+            t0 = time.time()
             img = Image.frombytes("1", (self.width, self.height), buffer)
             img = img.transpose(Image.FLIP_TOP_BOTTOM)
 
             img = img.transpose(Image.ROTATE_90)
+
             show_image = Image.new("RGBA", (img.width, img.height), (255, 255, 255, 255))
 
             for x in range(img.width):
@@ -375,7 +408,7 @@ class EPD:
 
             self.canvas.itemconfig(self.co, image=photo_image)
             self.root.update()
-            while time.time() <= t0 + 1: # emulate write duration
+            while time.time() <= t0 + 1:  # emulate write duration
                 pass
 
     def displayPartBaseImage(self, buffer):
@@ -408,7 +441,6 @@ class EPD:
 
         buffer = self.getbuffer(image, upsidedown=upsidedown)
         for _ in range(repeat):
-            t0 = time.time()
             self.displayPartial(buffer)
 
     def new_image(self, horizontal=True, fill=1):
