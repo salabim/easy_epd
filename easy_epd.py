@@ -42,7 +42,7 @@ This includes the ghosting effect when going from black to white.
 version 0.0.1  2021-04-18
 =========================
 Specification of the driver is changed.
-The file epdconfig.sys is no longer required.
+The file epdconfig.py is no longer required.
 On non Raspberry Pi's the image will be shown (emulated)
 
 
